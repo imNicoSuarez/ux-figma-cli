@@ -1169,16 +1169,23 @@ for (const col of targetCols) {
 
   // Bind variables after appending (prevents race condition)
   for (const { swatch, variable, modeId } of swatchesToBind) {
-    const value = variable.valuesByMode[modeId];
-    if (value && value.type !== 'VARIABLE_ALIAS') {
-      try {
-        // Strip alpha - setBoundVariableForPaint needs only {r,g,b}
+    try {
+      let value = variable.valuesByMode[modeId];
+      // Resolve alias to get actual color
+      if (value && value.type === 'VARIABLE_ALIAS') {
+        const resolved = figma.variables.getVariableById(value.id);
+        if (resolved) {
+          const resolvedModeId = Object.keys(resolved.valuesByMode)[0];
+          value = resolved.valuesByMode[resolvedModeId];
+        }
+      }
+      if (value && value.r !== undefined) {
         const color = { r: value.r, g: value.g, b: value.b };
         swatch.fills = [figma.variables.setBoundVariableForPaint(
           { type: 'SOLID', color }, 'color', variable
         )];
-      } catch (e) {}
-    }
+      }
+    } catch (e) {}
   }
 
   startX += container.width + 40;
