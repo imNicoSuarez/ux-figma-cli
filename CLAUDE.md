@@ -198,6 +198,49 @@ fill="#fff"           →  bg="#fff"
 cornerRadius={12}     →  rounded={12}
 fontSize={18}         →  size={18}
 fontWeight="bold"     →  weight="bold"
+justify="between"     →  use grow={1} spacer instead
+```
+
+### Layout Patterns
+
+**Push items to edges (navbar pattern):**
+```jsx
+// justify="between" doesn't work reliably, use grow spacer instead
+<Frame flex="row" items="center">
+  <Frame>Logo</Frame>
+  <Frame grow={1} justify="center">Nav Links</Frame>
+  <Frame>Buttons</Frame>
+</Frame>
+```
+
+**Badge at avatar corner:**
+```jsx
+// Absolute x/y is relative to parent padding
+// Avatar at padding=24, size=100, badge=20
+// Position: padding + avatarSize - badgeSize/2 = 24 + 100 - 10 = 114
+<Frame p={24}>
+  <Frame w={100} h={100} rounded={50} />
+  <Frame name="Badge" w={20} h={20} position="absolute" x={114} y={114} />
+</Frame>
+```
+
+**Input at bottom (chat pattern):**
+```jsx
+<Frame flex="col" h={400}>
+  <Frame>Message 1</Frame>
+  <Frame>Message 2</Frame>
+  <Frame grow={1} />
+  <Frame>Input field</Frame>
+</Frame>
+```
+
+**Avoid content overflow:**
+```jsx
+// BAD: fixed height too small for auto-sized children
+<Frame h={160} p={24}><Frame h={139} /></Frame>  // 139+48 > 160!
+
+// GOOD: ensure height fits content + padding
+<Frame h={200} p={24}><Frame h={139} /></Frame>  // 139+48 < 200 ✓
 ```
 
 **Complete card example:**
