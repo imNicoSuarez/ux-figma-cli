@@ -10,7 +10,7 @@
   "editorType": ["figma", "figjam"],
   "documentAccess": "dynamic-page",
   "networkAccess": {
-    "allowedDomains": ["*"],
+    "allowedDomains": ["http://127.0.0.1:3456", "ws://127.0.0.1:3456"],
     "reasoning": "Connects to local CLI daemon for command execution"
   }
 }

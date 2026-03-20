@@ -3,7 +3,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
-import { execSync, spawn } from 'child_process';
+import { execSync, spawnSync, spawn } from 'child_process';
 import { randomBytes } from 'crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { fileURLToPath, pathToFileURL } from 'url';
@@ -26,6 +26,37 @@ import {
 function unescapeShell(str) {
   if (!str) return str;
   return str.replace(/\\!/g, '!');
+}
+
+// Safely embed a user string as a JS literal in generated Figma code
+function safeStr(value) {
+  return JSON.stringify(String(value ?? ''));
+}
+
+// Validate Figma node ID format (digits:digits) — returns the ID or null if invalid
+function validateNodeId(id) {
+  if (!id) return null;
+  const cleaned = String(id).trim();
+  return /^\d+:\d+$/.test(cleaned) ? cleaned : null;
+}
+
+// Escape regex metacharacters in a user-provided pattern (prevents ReDoS)
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Safely query daemon health (sync) using spawnSync to avoid shell injection
+function healthCheckSync(timeoutMs = 2000) {
+  try {
+    const token = getDaemonToken();
+    const args = ['-s'];
+    if (token) args.push('-H', `X-Daemon-Token: ${token}`);
+    args.push(`http://127.0.0.1:${DAEMON_PORT}/health`);
+    const result = spawnSync('curl', args, { encoding: 'utf8', timeout: timeoutMs });
+    return JSON.parse(result.stdout || '{}');
+  } catch {
+    return {};
+  }
 }
 
 // Daemon configuration
@@ -81,13 +112,11 @@ function getTokenStatus() {
 function isDaemonRunning(returnDetails = false) {
   try {
     const token = getDaemonToken();
-    const tokenHeader = token ? ` -H "X-Daemon-Token: ${token}"` : '';
-    const response = execSync(`curl -s -o ${nullDevice} -w "%{http_code}"${tokenHeader} http://localhost:${DAEMON_PORT}/health`, {
-      encoding: 'utf8',
-      stdio: 'pipe',
-      timeout: 1000
-    });
-    const statusCode = response.trim();
+    const curlArgs = ['-s', '-o', nullDevice, '-w', '%{http_code}'];
+    if (token) curlArgs.push('-H', `X-Daemon-Token: ${token}`);
+    curlArgs.push(`http://localhost:${DAEMON_PORT}/health`);
+    const curlResult = spawnSync('curl', curlArgs, { encoding: 'utf8', timeout: 1000 });
+    const statusCode = (curlResult.stdout || '').trim();
 
     if (returnDetails) {
       return {
@@ -353,14 +382,15 @@ function figmaEvalSync(code) {
       // For simple expressions and multi-statement code, just pass through
       // The plugin will add return to the last statement
       const payload = JSON.stringify({ action: 'eval', code: wrappedCode });
-      const payloadFile = join(tmpdir(), `figma-payload-${Date.now()}.json`);
+      const payloadFile = join(tmpdir(), `figma-payload-${randomBytes(8).toString('hex')}.json`);
       writeFileSync(payloadFile, payload);
       const daemonToken = getDaemonToken();
-      const tokenHeader = daemonToken ? ` -H "X-Daemon-Token: ${daemonToken}"` : '';
-      const result = execSync(
-        `curl -s -X POST http://127.0.0.1:${DAEMON_PORT}/exec -H "Content-Type: application/json"${tokenHeader} -d @"${payloadFile}"`,
-        { encoding: 'utf8', timeout: 60000 }
-      );
+      const curlArgs = ['-s', '-X', 'POST', `http://127.0.0.1:${DAEMON_PORT}/exec`,
+        '-H', 'Content-Type: application/json'];
+      if (daemonToken) curlArgs.push('-H', `X-Daemon-Token: ${daemonToken}`);
+      curlArgs.push('-d', `@${payloadFile}`);
+      const curlExecResult = spawnSync('curl', curlArgs, { encoding: 'utf8', timeout: 60000 });
+      const result = curlExecResult.stdout;
       try { unlinkSync(payloadFile); } catch {}
       if (!result || result.trim() === '') {
         throw new Error('Empty response from daemon');
@@ -372,8 +402,11 @@ function figmaEvalSync(code) {
       // Check if we're in Safe Mode (plugin only) - don't fall through to CDP
       try {
         const healthToken = getDaemonToken();
-        const healthHeader = healthToken ? ` -H "X-Daemon-Token: ${healthToken}"` : '';
-        const healthRes = execSync(`curl -s${healthHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
+        const healthArgs = ['-s'];
+        if (healthToken) healthArgs.push('-H', `X-Daemon-Token: ${healthToken}`);
+        healthArgs.push(`http://127.0.0.1:${DAEMON_PORT}/health`);
+        const healthSpawn = spawnSync('curl', healthArgs, { encoding: 'utf8', timeout: 2000 });
+        const healthRes = healthSpawn.stdout;
         const health = JSON.parse(healthRes);
         if (health.plugin && !health.cdp) {
           // Safe Mode - re-throw the error, don't try CDP fallback
@@ -385,8 +418,8 @@ function figmaEvalSync(code) {
   }
 
   // Fallback: direct connection via temp script
-  const tempFile = join(tmpdir(), `figma-eval-${Date.now()}.mjs`);
-  const resultFile = join(tmpdir(), `figma-result-${Date.now()}.json`);
+  const tempFile = join(tmpdir(), `figma-eval-${randomBytes(8).toString('hex')}.mjs`);
+  const resultFile = join(tmpdir(), `figma-result-${randomBytes(8).toString('hex')}.json`);
 
   // Use file:// URL for ESM import (cross-platform)
   const clientUrl = pathToFileURL(join(process.cwd(), 'src/figma-client.js')).href;
@@ -485,7 +518,7 @@ function figmaUse(args, options = {}) {
   if (args.startsWith('collection create ')) {
     const name = args.replace('collection create ', '').replace(/"/g, '');
     const result = figmaEvalSync(`
-      const col = figma.variables.createVariableCollection('${name}');
+      const col = figma.variables.createVariableCollection(${safeStr(name)});
       col.id
     `);
     if (!options.silent) console.log(chalk.green('✓ Created collection: ' + name));
@@ -494,9 +527,10 @@ function figmaUse(args, options = {}) {
 
   if (args.startsWith('variable find ')) {
     const pattern = args.replace('variable find ', '').replace(/"/g, '');
+    // Escape regex metacharacters, then restore * as wildcard
+    const safePattern = escapeRegex(pattern).replace('\\*', '.*');
     const result = figmaEvalSync(`(async () => {
-      const pattern = '${pattern}'.replace('*', '.*');
-      const re = new RegExp(pattern, 'i');
+      const re = new RegExp(${safeStr(safePattern)}, 'i');
       const vars = await figma.variables.getLocalVariablesAsync();
       return vars.filter(v => re.test(v.name)).map(v => v.name).join('\\n');
     })()`);
@@ -507,7 +541,7 @@ function figmaUse(args, options = {}) {
   if (args.startsWith('select ')) {
     const nodeId = args.replace('select ', '').replace(/"/g, '');
     figmaEvalSync(`(async () => {
-      const node = await figma.getNodeByIdAsync('${nodeId}');
+      const node = await figma.getNodeByIdAsync(${safeStr(nodeId)});
       if (node) figma.currentPage.selection = [node];
     })()`);
     return 'Selected';
@@ -525,9 +559,11 @@ async function checkConnection() {
   // First check daemon (works for both CDP and Plugin modes)
   try {
     const connToken = getDaemonToken();
-    const connHeader = connToken ? ` -H "X-Daemon-Token: ${connToken}"` : '';
-    const health = execSync(`curl -s${connHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
-    const data = JSON.parse(health);
+    const connArgs = ['-s'];
+    if (connToken) connArgs.push('-H', `X-Daemon-Token: ${connToken}`);
+    connArgs.push(`http://127.0.0.1:${DAEMON_PORT}/health`);
+    const connResult = spawnSync('curl', connArgs, { encoding: 'utf8', timeout: 2000 });
+    const data = JSON.parse(connResult.stdout || '{}');
     if (data.status === 'ok' && (data.plugin || data.cdp)) {
       return true;
     }
@@ -550,9 +586,11 @@ function checkConnectionSync() {
   // First check daemon (works for both CDP and Plugin modes)
   try {
     const syncToken = getDaemonToken();
-    const syncHeader = syncToken ? ` -H "X-Daemon-Token: ${syncToken}"` : '';
-    const health = execSync(`curl -s${syncHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
-    const data = JSON.parse(health);
+    const syncArgs = ['-s'];
+    if (syncToken) syncArgs.push('-H', `X-Daemon-Token: ${syncToken}`);
+    syncArgs.push(`http://127.0.0.1:${DAEMON_PORT}/health`);
+    const syncResult = spawnSync('curl', syncArgs, { encoding: 'utf8', timeout: 2000 });
+    const data = JSON.parse(syncResult.stdout || '{}');
     if (data.status === 'ok' && (data.plugin || data.cdp)) {
       return true;
     }
@@ -614,7 +652,7 @@ function generateFillCode(color, nodeVar = 'node', property = 'fills') {
   if (isVarRef(color)) {
     const varName = getVarName(color);
     return {
-      code: `${nodeVar}.${property} = [boundFill(vars['${varName}'])];`,
+      code: `${nodeVar}.${property} = [boundFill(vars[${safeStr(varName)}])];`,
       usesVars: true
     };
   }
@@ -630,7 +668,7 @@ function generateStrokeCode(color, nodeVar = 'node', weight = 1) {
   if (isVarRef(color)) {
     const varName = getVarName(color);
     return {
-      code: `${nodeVar}.strokes = [boundFill(vars['${varName}'])]; ${nodeVar}.strokeWeight = ${weight};`,
+      code: `${nodeVar}.strokes = [boundFill(vars[${safeStr(varName)}])]; ${nodeVar}.strokeWeight = ${weight};`,
       usesVars: true
     };
   }
@@ -1055,10 +1093,7 @@ program
       for (let i = 0; i < 30; i++) {  // Wait up to 30 seconds
         await new Promise(r => setTimeout(r, 1000));
         try {
-          const pluginToken = getDaemonToken();
-          const pluginHeader = pluginToken ? ` -H "X-Daemon-Token: ${pluginToken}"` : '';
-          const healthRes = execSync(`curl -s${pluginHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8' });
-          const health = JSON.parse(healthRes);
+          const health = healthCheckSync();
           if (health.plugin) {
             pluginSpinner.succeed('Plugin connected!');
             console.log(chalk.green('\n  ✓ Ready! Safe Mode active.\n'));
@@ -1188,10 +1223,13 @@ variables
   .action((name, options) => {
     checkConnection();
     const type = options.type.toUpperCase();
+    const colSafe = safeStr(options.collection);
+    const nameSafe = safeStr(name);
+    const typeSafe = safeStr(type);
     const code = `(async () => {
 const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.id === '${options.collection}' || c.name === '${options.collection}');
-if (!col) return 'Collection not found: ${options.collection}';
+let col = cols.find(c => c.id === ${colSafe} || c.name === ${colSafe});
+if (!col) return 'Collection not found: ' + ${colSafe};
 const modeId = col.modes[0].modeId;
 
 function hexToRgb(hex) {
@@ -1203,15 +1241,15 @@ function hexToRgb(hex) {
   } : null;
 }
 
-const v = figma.variables.createVariable('${name}', col, '${type}');
+const v = figma.variables.createVariable(${nameSafe}, col, ${typeSafe});
 ${options.value ? `
-let figmaValue = '${options.value}';
-if ('${type}' === 'COLOR') figmaValue = hexToRgb('${options.value}');
-else if ('${type}' === 'FLOAT') figmaValue = parseFloat('${options.value}');
-else if ('${type}' === 'BOOLEAN') figmaValue = '${options.value}' === 'true';
+let figmaValue = ${safeStr(options.value)};
+if (${typeSafe} === 'COLOR') figmaValue = hexToRgb(${safeStr(options.value)});
+else if (${typeSafe} === 'FLOAT') figmaValue = parseFloat(${safeStr(options.value)});
+else if (${typeSafe} === 'BOOLEAN') figmaValue = ${safeStr(options.value)} === 'true';
 v.setValueForMode(modeId, figmaValue);
 ` : ''}
-return 'Created ${type.toLowerCase()} variable: ${name}';
+return 'Created ${type.toLowerCase()} variable: ' + ${nameSafe};
 })()`;
     figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
   });
@@ -1238,7 +1276,7 @@ await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
 const collections = await figma.variables.getLocalVariableCollectionsAsync();
 const colorVars = await figma.variables.getLocalVariablesAsync('COLOR');
 
-const targetCols = ${collection ? `collections.filter(c => c.name.toLowerCase().includes('${collection}'.toLowerCase()))` : 'collections'};
+const targetCols = ${collection ? `collections.filter(c => c.name.toLowerCase().includes(${safeStr(collection)}.toLowerCase()))` : 'collections'};
 if (targetCols.length === 0) return 'No collections found';
 
 // Skip semantic collections (they're aliases, colors already shown in primitives)
@@ -1438,8 +1476,8 @@ variables
     const code = `(async () => {
 const vars = ${JSON.stringify(vars)};
 const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.id === '${options.collection}' || c.name === '${options.collection}');
-if (!col) return 'Collection not found: ${options.collection}';
+let col = cols.find(c => c.id === ${safeStr(options.collection)} || c.name === ${safeStr(options.collection)});
+if (!col) return 'Collection not found: ' + ${safeStr(options.collection)};
 const modeId = col.modes[0].modeId;
 
 function hexToRgb(hex) {
@@ -1476,7 +1514,7 @@ variables
     const spinner = ora('Deleting variables...').start();
 
     const filterCode = options.collection
-      ? `cols = cols.filter(c => c.name.includes('${options.collection}'));`
+      ? `cols = cols.filter(c => c.name.includes(${safeStr(options.collection)}));`
       : '';
 
     const code = `(async () => {
@@ -2025,8 +2063,8 @@ function hexToRgb(hex) {
   return { r: parseInt(r[1], 16) / 255, g: parseInt(r[2], 16) / 255, b: parseInt(r[3], 16) / 255 };
 }
 const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.name === '${options.collection}');
-if (!col) col = figma.variables.createVariableCollection('${options.collection}');
+let col = cols.find(c => c.name === ${safeStr(options.collection)});
+if (!col) col = figma.variables.createVariableCollection(${safeStr(options.collection)});
 const modeId = col.modes[0].modeId;
 const existingVars = await figma.variables.getLocalVariablesAsync();
 let count = 0;
@@ -2329,8 +2367,8 @@ function hexToRgb(hex) {
   return { r: parseInt(r[1], 16) / 255, g: parseInt(r[2], 16) / 255, b: parseInt(r[3], 16) / 255 };
 }
 const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.name === '${options.collection}');
-if (!col) col = figma.variables.createVariableCollection('${options.collection}');
+let col = cols.find(c => c.name === ${safeStr(options.collection)});
+if (!col) col = figma.variables.createVariableCollection(${safeStr(options.collection)});
 const modeId = col.modes[0].modeId;
 const existingVars = await figma.variables.getLocalVariablesAsync();
 let count = 0;
@@ -2375,8 +2413,8 @@ tokens
     const code = `(async () => {
 const spacings = ${JSON.stringify(spacings)};
 const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.name === '${options.collection}');
-if (!col) col = figma.variables.createVariableCollection('${options.collection}');
+let col = cols.find(c => c.name === ${safeStr(options.collection)});
+if (!col) col = figma.variables.createVariableCollection(${safeStr(options.collection)});
 const modeId = col.modes[0].modeId;
 const existingVars = await figma.variables.getLocalVariablesAsync();
 let count = 0;
@@ -2415,8 +2453,8 @@ tokens
     const code = `(async () => {
 const radii = ${JSON.stringify(radii)};
 const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.name === '${options.collection}');
-if (!col) col = figma.variables.createVariableCollection('${options.collection}');
+let col = cols.find(c => c.name === ${safeStr(options.collection)});
+if (!col) col = figma.variables.createVariableCollection(${safeStr(options.collection)});
 const modeId = col.modes[0].modeId;
 const existingVars = await figma.variables.getLocalVariablesAsync();
 let count = 0;
@@ -2465,7 +2503,7 @@ tokens
 
     const code = `(async () => {
 const data = ${JSON.stringify(tokensData)};
-const collectionName = '${collectionName}';
+const collectionName = ${safeStr(collectionName)};
 
 function hexToRgb(hex) {
   const r = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
@@ -2870,8 +2908,8 @@ function hexToRgb(hex) {
   return { r: parseInt(r[1], 16) / 255, g: parseInt(r[2], 16) / 255, b: parseInt(r[3], 16) / 255 };
 }
 
-const value = '${value}';
-let type = '${options.type || ''}';
+const value = ${safeStr(value)};
+let type = ${safeStr(options.type || '')};
 if (!type) {
   if (value.startsWith('#')) type = 'COLOR';
   else if (!isNaN(parseFloat(value))) type = 'FLOAT';
@@ -2880,18 +2918,18 @@ if (!type) {
 }
 
 const cols = await figma.variables.getLocalVariableCollectionsAsync();
-let col = cols.find(c => c.name === '${options.collection}');
-if (!col) col = figma.variables.createVariableCollection('${options.collection}');
+let col = cols.find(c => c.name === ${safeStr(options.collection)});
+if (!col) col = figma.variables.createVariableCollection(${safeStr(options.collection)});
 const modeId = col.modes[0].modeId;
 
-const v = figma.variables.createVariable('${name}', col, type);
+const v = figma.variables.createVariable(${safeStr(name)}, col, type);
 let figmaValue = value;
 if (type === 'COLOR') figmaValue = hexToRgb(value);
 else if (type === 'FLOAT') figmaValue = parseFloat(value);
 else if (type === 'BOOLEAN') figmaValue = value === 'true';
 v.setValueForMode(modeId, figmaValue);
 
-return 'Created ' + type.toLowerCase() + ' token: ${name}';
+return 'Created ' + type.toLowerCase() + ' token: ' + ${safeStr(name)};
 })()`;
 
     try {
@@ -2931,14 +2969,14 @@ create
 ${usesVars ? varLoadingCode() : ''}
 ${useSmartPos ? smartPosCode(options.gap) : `const smartX = ${options.x};`}
 const frame = figma.createFrame();
-frame.name = '${name}';
+frame.name = ${safeStr(name)};
 frame.x = smartX;
 frame.y = ${options.y};
 frame.resize(${options.width}, ${options.height});
 ${fillCode ? fillCode.code : ''}
 ${options.radius ? `frame.cornerRadius = ${options.radius};` : ''}
 figma.currentPage.selection = [frame];
-return '${name} created at (' + smartX + ', ${options.y})';
+return ${safeStr(name)} + ' created at (' + smartX + ', ${options.y})';
 })()
 `;
     const result = await daemonExec('eval', { code });
@@ -3003,7 +3041,7 @@ create
 
   // Create SVG node
   const node = figma.createNodeFromSvg(${JSON.stringify(svgContent)});
-  node.name = "${name}";
+  node.name = ${safeStr(name)};
   node.x = x;
   node.y = ${posY};
 
@@ -3011,13 +3049,13 @@ create
   let finalNode = node;
   if (node.type === 'FRAME' && node.children.length > 0) {
     finalNode = figma.flatten([node]);
-    finalNode.name = "${name}";
+    finalNode.name = ${safeStr(name)};
   }
 
   ${usesVar ? `
   // Bind variable to fills
-  if ('fills' in finalNode && vars['${varName}']) {
-    finalNode.fills = [boundFill(vars['${varName}'])];
+  if ('fills' in finalNode && vars[${safeStr(varName)}]) {
+    finalNode.fills = [boundFill(vars[${safeStr(varName)}])];
   }
   ` : ''}
 
@@ -3890,10 +3928,10 @@ create
 (async function() {
   ${usesVars ? varLoadingCode() : ''}
   ${useSmartPos ? smartPosCode(options.spacing) : `const smartX = ${options.x};`}
-  await figma.loadFontAsync({ family: '${options.font}', style: '${fontStyle}' });
+  await figma.loadFontAsync({ family: ${safeStr(options.font)}, style: ${safeStr(fontStyle)} });
   const text = figma.createText();
-  text.fontName = { family: '${options.font}', style: '${fontStyle}' };
-  text.characters = '${content.replace(/'/g, "\\'")}';
+  text.fontName = { family: ${safeStr(options.font)}, style: ${safeStr(fontStyle)} };
+  text.characters = ${safeStr(content)};
   text.fontSize = ${options.size};
   ${fillCode.code}
   text.x = smartX;
@@ -4111,13 +4149,13 @@ bind
   .action((varName, options) => {
     checkConnection();
     const nodeSelector = options.node
-      ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
+      ? `const node = await figma.getNodeByIdAsync(${safeStr(options.node)}); const nodes = node ? [node] : [];`
       : `const nodes = figma.currentPage.selection;`;
     let code = `(async () => {
 ${nodeSelector}
 const vars = await figma.variables.getLocalVariablesAsync();
-const v = vars.find(v => v.name === '${varName}' || v.name.endsWith('/${varName}'));
-if (!v) return 'Variable not found: ${varName}';
+const v = vars.find(v => v.name === ${safeStr(varName)} || v.name.endsWith('/' + ${safeStr(varName)}));
+if (!v) return 'Variable not found: ' + ${safeStr(varName)};
 if (nodes.length === 0) return 'No node selected';
 nodes.forEach(n => {
   if ('fills' in n && n.fills.length > 0) {
@@ -4137,13 +4175,13 @@ bind
   .action((varName, options) => {
     checkConnection();
     const nodeSelector = options.node
-      ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
+      ? `const node = await figma.getNodeByIdAsync(${safeStr(options.node)}); const nodes = node ? [node] : [];`
       : `const nodes = figma.currentPage.selection;`;
     let code = `(async () => {
 ${nodeSelector}
 const vars = await figma.variables.getLocalVariablesAsync();
-const v = vars.find(v => v.name === '${varName}' || v.name.endsWith('/${varName}'));
-if (!v) return 'Variable not found: ${varName}';
+const v = vars.find(v => v.name === ${safeStr(varName)} || v.name.endsWith('/' + ${safeStr(varName)}));
+if (!v) return 'Variable not found: ' + ${safeStr(varName)};
 if (nodes.length === 0) return 'No node selected';
 nodes.forEach(n => {
   if ('strokes' in n) {
@@ -4164,13 +4202,13 @@ bind
   .action((varName, options) => {
     checkConnection();
     const nodeSelector = options.node
-      ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
+      ? `const node = await figma.getNodeByIdAsync(${safeStr(options.node)}); const nodes = node ? [node] : [];`
       : `const nodes = figma.currentPage.selection;`;
     let code = `(async () => {
 ${nodeSelector}
 const vars = await figma.variables.getLocalVariablesAsync();
-const v = vars.find(v => v.name === '${varName}' || v.name.endsWith('/${varName}'));
-if (!v) return 'Variable not found: ${varName}';
+const v = vars.find(v => v.name === ${safeStr(varName)} || v.name.endsWith('/' + ${safeStr(varName)}));
+if (!v) return 'Variable not found: ' + ${safeStr(varName)};
 if (nodes.length === 0) return 'No node selected';
 nodes.forEach(n => {
   if ('cornerRadius' in n) n.setBoundVariable('cornerRadius', v);
@@ -4187,13 +4225,13 @@ bind
   .action((varName, options) => {
     checkConnection();
     const nodeSelector = options.node
-      ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
+      ? `const node = await figma.getNodeByIdAsync(${safeStr(options.node)}); const nodes = node ? [node] : [];`
       : `const nodes = figma.currentPage.selection;`;
     let code = `(async () => {
 ${nodeSelector}
 const vars = await figma.variables.getLocalVariablesAsync();
-const v = vars.find(v => v.name === '${varName}' || v.name.endsWith('/${varName}'));
-if (!v) return 'Variable not found: ${varName}';
+const v = vars.find(v => v.name === ${safeStr(varName)} || v.name.endsWith('/' + ${safeStr(varName)}));
+if (!v) return 'Variable not found: ' + ${safeStr(varName)};
 if (nodes.length === 0) return 'No node selected';
 nodes.forEach(n => {
   if ('itemSpacing' in n) n.setBoundVariable('itemSpacing', v);
@@ -4211,7 +4249,7 @@ bind
   .action((varName, options) => {
     checkConnection();
     const nodeSelector = options.node
-      ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
+      ? `const node = await figma.getNodeByIdAsync(${safeStr(options.node)}); const nodes = node ? [node] : [];`
       : `const nodes = figma.currentPage.selection;`;
     const sides = options.side === 'all'
       ? ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']
@@ -4219,8 +4257,8 @@ bind
     let code = `(async () => {
 ${nodeSelector}
 const vars = await figma.variables.getLocalVariablesAsync();
-const v = vars.find(v => v.name === '${varName}' || v.name.endsWith('/${varName}'));
-if (!v) return 'Variable not found: ${varName}';
+const v = vars.find(v => v.name === ${safeStr(varName)} || v.name.endsWith('/' + ${safeStr(varName)}));
+if (!v) return 'Variable not found: ' + ${safeStr(varName)};
 if (nodes.length === 0) return 'No node selected';
 const sides = ${JSON.stringify(sides)};
 nodes.forEach(n => {
@@ -4398,8 +4436,8 @@ program
     checkConnection();
     if (nodeId) {
       let code = `(async () => {
-const node = await figma.getNodeByIdAsync('${nodeId}');
-if (node) { node.remove(); return 'Deleted: ${nodeId}'; } else { return 'Node not found: ${nodeId}'; }
+const node = await figma.getNodeByIdAsync(${safeStr(nodeId)});
+if (node) { node.remove(); return 'Deleted: ' + ${safeStr(nodeId)}; } else { return 'Node not found: ' + ${safeStr(nodeId)}; }
 })()`;
       figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
     } else {
@@ -4423,7 +4461,7 @@ program
     checkConnection();
     if (nodeId) {
       let code = `(async () => {
-const node = await figma.getNodeByIdAsync('${nodeId}');
+const node = await figma.getNodeByIdAsync(${safeStr(nodeId)});
 if (node) { const clone = node.clone(); clone.x += ${options.offset}; clone.y += ${options.offset}; figma.currentPage.selection = [clone]; return 'Duplicated: ' + clone.id; } else { return 'Node not found'; }
 })()`;
       figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
@@ -4450,7 +4488,7 @@ set
   .action(async (color, options) => {
     checkConnection();
     const nodeSelector = options.node
-      ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
+      ? `const node = await figma.getNodeByIdAsync(${safeStr(options.node)}); const nodes = node ? [node] : [];`
       : `const nodes = figma.currentPage.selection;`;
 
     let code;
@@ -4464,9 +4502,9 @@ set
         let variable = null;
         for (const id of col.variableIds) {
           const v = await figma.variables.getVariableByIdAsync(id);
-          if (v && v.name === '${varName}') { variable = v; break; }
+          if (v && v.name === ${safeStr(varName)}) { variable = v; break; }
         }
-        if (!variable) return 'Variable ${varName} not found';
+        if (!variable) return 'Variable ' + ${safeStr(varName)} + ' not found';
         ${nodeSelector}
         if (nodes.length === 0) return 'No node found';
         const boundFill = (v) => figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }, 'color', v);
@@ -4496,7 +4534,7 @@ set
   .action(async (color, options) => {
     checkConnection();
     const nodeSelector = options.node
-      ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
+      ? `const node = await figma.getNodeByIdAsync(${safeStr(options.node)}); const nodes = node ? [node] : [];`
       : `const nodes = figma.currentPage.selection;`;
 
     let code;
@@ -4510,9 +4548,9 @@ set
         let variable = null;
         for (const id of col.variableIds) {
           const v = await figma.variables.getVariableByIdAsync(id);
-          if (v && v.name === '${varName}') { variable = v; break; }
+          if (v && v.name === ${safeStr(varName)}) { variable = v; break; }
         }
-        if (!variable) return 'Variable ${varName} not found';
+        if (!variable) return 'Variable ' + ${safeStr(varName)} + ' not found';
         ${nodeSelector}
         if (nodes.length === 0) return 'No node found';
         const boundFill = (v) => figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }, 'color', v);
@@ -4541,7 +4579,7 @@ set
   .action((value, options) => {
     checkConnection();
     const nodeSelector = options.node
-      ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
+      ? `const node = await figma.getNodeByIdAsync(${safeStr(options.node)}); const nodes = node ? [node] : [];`
       : `const nodes = figma.currentPage.selection;`;
     let code = `
 ${nodeSelector}
@@ -4558,7 +4596,7 @@ set
   .action((width, height, options) => {
     checkConnection();
     const nodeSelector = options.node
-      ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
+      ? `const node = await figma.getNodeByIdAsync(${safeStr(options.node)}); const nodes = node ? [node] : [];`
       : `const nodes = figma.currentPage.selection;`;
     let code = `
 ${nodeSelector}
@@ -4576,7 +4614,7 @@ set
   .action((x, y, options) => {
     checkConnection();
     const nodeSelector = options.node
-      ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
+      ? `const node = await figma.getNodeByIdAsync(${safeStr(options.node)}); const nodes = node ? [node] : [];`
       : `const nodes = figma.currentPage.selection;`;
     let code = `
 ${nodeSelector}
@@ -4593,7 +4631,7 @@ set
   .action((value, options) => {
     checkConnection();
     const nodeSelector = options.node
-      ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
+      ? `const node = await figma.getNodeByIdAsync(${safeStr(options.node)}); const nodes = node ? [node] : [];`
       : `const nodes = figma.currentPage.selection;`;
     let code = `
 ${nodeSelector}
@@ -4610,12 +4648,12 @@ set
   .action((name, options) => {
     checkConnection();
     const nodeSelector = options.node
-      ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
+      ? `const node = await figma.getNodeByIdAsync(${safeStr(options.node)}); const nodes = node ? [node] : [];`
       : `const nodes = figma.currentPage.selection;`;
     let code = `
 ${nodeSelector}
 if (nodes.length === 0) 'No node found';
-else { nodes.forEach(n => { n.name = '${name}'; }); 'Renamed ' + nodes.length + ' elements to ${name}'; }
+else { nodes.forEach(n => { n.name = ${safeStr(name)}; }); 'Renamed ' + nodes.length + ' elements to ' + ${safeStr(name)}; }
 `;
     figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
   });
@@ -4692,7 +4730,7 @@ program
   .action((nodeId) => {
     checkConnection();
     const nodeSelector = nodeId
-      ? `const node = await figma.getNodeByIdAsync('${nodeId}');`
+      ? `const node = await figma.getNodeByIdAsync(${safeStr(nodeId)});`
       : `const node = figma.currentPage.selection[0];`;
     let code = `(async () => {
 ${nodeSelector}
@@ -4728,10 +4766,11 @@ program
   .option('-l, --limit <n>', 'Limit results', '20')
   .action((name, options) => {
     checkConnection();
+    const nameLower = name.toLowerCase();
     let code = `(function() {
 const results = [];
 function search(node) {
-  if (node.name && node.name.toLowerCase().includes('${name.toLowerCase()}')) {
+  if (node.name && node.name.toLowerCase().includes(${safeStr(nameLower)})) {
     ${options.type ? `if (node.type === '${options.type.toUpperCase()}')` : ''}
     results.push({ id: node.id, name: node.name, type: node.type });
   }
@@ -4740,7 +4779,7 @@ function search(node) {
   }
 }
 search(figma.currentPage);
-return results.length === 0 ? 'No nodes found matching "${name}"' : results.slice(0, ${options.limit}).map(r => r.id + ' [' + r.type + '] ' + r.name).join('\\n');
+return results.length === 0 ? 'No nodes found matching ' + ${safeStr(name)} : results.slice(0, ${options.limit}).map(r => r.id + ' [' + r.type + '] ' + r.name).join('\\n');
 })()`;
     figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
   });
@@ -4822,7 +4861,7 @@ function extractPostProcessFixes(jsx) {
 // Helper: Apply post-process fixes to rendered node
 async function applyPostProcessFixes(nodeId, fixes) {
   const code = `(async function() {
-    const root = await figma.getNodeByIdAsync('${nodeId}');
+    const root = await figma.getNodeByIdAsync(${safeStr(nodeId)});
     if (!root) return { error: 'Node not found' };
 
     const results = [];
@@ -4932,7 +4971,7 @@ function generateFigmaCode(props, x, y) {
 
   let code = `(function() {
     const f = figma.createFrame();
-    f.name = '${name}';
+    f.name = ${safeStr(name)};
     f.resize(${w}, ${h});
     f.x = ${x};
     f.y = ${y};`;
@@ -5010,10 +5049,7 @@ program
       // Check if we're in Safe Mode (plugin only, no CDP)
       let useDaemonRender = false;
       try {
-        const healthToken = getDaemonToken();
-        const healthHeader = healthToken ? ` -H "X-Daemon-Token: ${healthToken}"` : '';
-        const healthRes = execSync(`curl -s${healthHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
-        const health = JSON.parse(healthRes);
+        const health = healthCheckSync();
         useDaemonRender = health.plugin && !health.cdp; // Safe Mode
       } catch {}
 
@@ -5247,10 +5283,10 @@ exp
     const format = options.format.toUpperCase();
     const scale = parseFloat(options.scale);
     const code = `(async () => {
-const node = await figma.getNodeByIdAsync('${nodeId}');
-if (!node) return { error: 'Node not found: ${nodeId}' };
+const node = await figma.getNodeByIdAsync(${safeStr(nodeId)});
+if (!node) return { error: 'Node not found: ' + ${safeStr(nodeId)} };
 if (!('exportAsync' in node)) return { error: 'Node cannot be exported' };
-const bytes = await node.exportAsync({ format: '${format}', constraint: { type: 'SCALE', value: ${scale} } });
+const bytes = await node.exportAsync({ format: ${safeStr(format)}, constraint: { type: 'SCALE', value: ${scale} } });
 return {
   name: node.name,
   id: node.id,
@@ -5334,7 +5370,7 @@ program
 
     const code = `(async () => {
       let node;
-      ${nodeId ? `node = await figma.getNodeByIdAsync('${nodeId}');` : `
+      ${nodeId ? `node = await figma.getNodeByIdAsync(${safeStr(nodeId)});` : `
       const sel = figma.currentPage.selection;
       node = sel.length > 0 ? sel[0] : null;
       `}
@@ -5510,10 +5546,7 @@ program
 // Helper: Check if Safe Mode (plugin only)
 async function isInSafeMode() {
   try {
-    const healthToken = getDaemonToken();
-    const healthHeader = healthToken ? ` -H "X-Daemon-Token: ${healthToken}"` : '';
-    const healthRes = execSync(`curl -s${healthHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
-    const health = JSON.parse(healthRes);
+    const health = healthCheckSync();
     return health.plugin && !health.cdp;
   } catch {
     return false;
@@ -5810,7 +5843,7 @@ a11y
     await checkConnection();
     const level = options.level.toUpperCase();
     const code = `(async () => {
-      const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+      const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
       const root = targetId ? await figma.getNodeByIdAsync(targetId) : figma.currentPage;
       if (!root) return { error: 'Node not found' };
 
@@ -5952,7 +5985,7 @@ a11y
     await checkConnection();
     const simType = options.type.toLowerCase();
     const code = `(async () => {
-      const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+      const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
       const root = targetId ? await figma.getNodeByIdAsync(targetId) : figma.currentPage.selection[0];
       if (!root) return { error: 'Select a frame or provide a node ID' };
 
@@ -6142,7 +6175,7 @@ a11y
     await checkConnection();
     const minSize = parseInt(options.min) || 44;
     const code = `(async () => {
-      const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+      const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
       const root = targetId ? await figma.getNodeByIdAsync(targetId) : figma.currentPage;
       if (!root) return { error: 'Node not found' };
 
@@ -6225,7 +6258,7 @@ a11y
   .action(async (nodeId, options) => {
     await checkConnection();
     const code = `(async () => {
-      const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+      const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
       const root = targetId ? await figma.getNodeByIdAsync(targetId) : figma.currentPage;
       if (!root) return { error: 'Node not found' };
 
@@ -6342,7 +6375,7 @@ a11y
   .action(async (nodeId, options) => {
     await checkConnection();
     const code = `(async () => {
-      const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+      const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
       const root = targetId ? await figma.getNodeByIdAsync(targetId) : figma.currentPage.selection[0] || figma.currentPage;
       if (!root) return { error: 'Node not found' };
 
@@ -6470,7 +6503,7 @@ a11y
     await checkConnection();
     const level = options.level.toUpperCase();
     const code = `(async () => {
-      const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+      const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
       const root = targetId ? await figma.getNodeByIdAsync(targetId) : figma.currentPage;
       if (!root) return { error: 'Node not found' };
 
@@ -6674,7 +6707,7 @@ node
       const maxDepth = parseInt(options.depth) || 3;
       const code = `(async () => {
         const maxDepth = ${maxDepth};
-        const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+        const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
         const root = targetId ? await figma.getNodeByIdAsync(targetId) : figma.currentPage;
         if (!root) return 'Node not found';
 
@@ -6714,7 +6747,7 @@ node
 
     if (await isInSafeMode()) {
       const code = `(async () => {
-        const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+        const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
         const nodes = targetId
           ? [await figma.getNodeByIdAsync(targetId)]
           : figma.currentPage.selection;
@@ -6774,10 +6807,7 @@ node
     // Check if we're in Safe Mode (plugin only, no CDP)
     let useDaemon = false;
     try {
-      const healthToken = getDaemonToken();
-      const healthHeader = healthToken ? ` -H "X-Daemon-Token: ${healthToken}"` : '';
-      const healthRes = execSync(`curl -s${healthHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
-      const health = JSON.parse(healthRes);
+      const health = healthCheckSync();
       useDaemon = health.plugin && !health.cdp;
     } catch {}
 
@@ -6819,10 +6849,7 @@ node
     // Check if we're in Safe Mode
     let useDaemon = false;
     try {
-      const healthToken = getDaemonToken();
-      const healthHeader = healthToken ? ` -H "X-Daemon-Token: ${healthToken}"` : '';
-      const healthRes = execSync(`curl -s${healthHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
-      const health = JSON.parse(healthRes);
+      const health = healthCheckSync();
       useDaemon = health.plugin && !health.cdp;
     } catch {}
 
@@ -6914,7 +6941,7 @@ slot
     await checkConnection();
 
     const code = `(async () => {
-      const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+      const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
       let comp;
 
       if (targetId) {
@@ -7073,7 +7100,7 @@ slot
     await checkConnection();
 
     const code = `(async () => {
-      const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+      const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
       let node;
 
       if (targetId) {
@@ -7134,7 +7161,7 @@ slot
     const slotName = options.name || 'Slot';
 
     const code = `(async () => {
-      const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+      const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
       let frame;
 
       if (targetId) {
@@ -7304,7 +7331,7 @@ program
 
     if (await isInSafeMode()) {
       const code = `(async () => {
-        const targetId = ${nodeId ? `"${nodeId}"` : 'null'};
+        const targetId = ${nodeId ? JSON.stringify(nodeId) : 'null'};
         const nodes = targetId
           ? [await figma.getNodeByIdAsync(targetId)]
           : figma.currentPage.selection;
@@ -7775,8 +7802,8 @@ program
 
       const code = `(async () => {
         let node;
-        if ('${nodeIdStr}') {
-          node = await figma.getNodeByIdAsync('${nodeIdStr}');
+        if (${safeStr(nodeIdStr)}) {
+          node = await figma.getNodeByIdAsync(${safeStr(nodeIdStr)});
         } else {
           node = figma.currentPage.selection[0];
         }
@@ -7933,8 +7960,8 @@ program
 
       const analysisCode = `(async () => {
         let node;
-        if ('${nodeIdStr}') {
-          node = await figma.getNodeByIdAsync('${nodeIdStr}');
+        if (${safeStr(nodeIdStr)}) {
+          node = await figma.getNodeByIdAsync(${safeStr(nodeIdStr)});
         } else {
           node = figma.currentPage.selection[0];
         }
@@ -8043,8 +8070,8 @@ program
       spinner.text = `Creating ${totalCombos} components in ${numRows}x${numCols} grid...`;
 
       const createCode = `(async () => {
-        const componentSet = await figma.getNodeByIdAsync('${analysis.componentSetId}');
-        const defaultVariant = await figma.getNodeByIdAsync('${analysis.defaultVariantId}');
+        const componentSet = await figma.getNodeByIdAsync(${safeStr(analysis.componentSetId)});
+        const defaultVariant = await figma.getNodeByIdAsync(${safeStr(analysis.defaultVariantId)});
 
         await figma.loadFontAsync({ family: 'Inter', style: 'Regular' });
         await figma.loadFontAsync({ family: 'Inter', style: 'Medium' });
