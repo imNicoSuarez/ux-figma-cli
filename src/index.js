@@ -1076,14 +1076,10 @@ program
       console.log(chalk.hex('#FF6B35')('  │') + chalk.white.bold('  Configurar el plugin de uxclaude                  ') + chalk.hex('#FF6B35')('│'));
       console.log(chalk.hex('#FF6B35')('  └─────────────────────────────────────────────────────┘\n'));
 
-      console.log(chalk.white.bold('  CONFIGURACIÓN INICIAL (solo una vez):\n'));
+      console.log(chalk.white.bold('  PARA CONECTAR:\n'));
       console.log(chalk.cyan('  1. ') + chalk.white('Abrí Figma Desktop y cualquier archivo de diseño'));
-      console.log(chalk.cyan('  2. ') + chalk.white('Andá a ') + chalk.yellow('Plugins → Development → Import plugin from manifest'));
-      console.log(chalk.cyan('  3. ') + chalk.white('Navegá a: ') + chalk.yellow(process.cwd() + '/plugin/manifest.json'));
-      console.log(chalk.cyan('  4. ') + chalk.white('Hacé click en ') + chalk.yellow('Open') + chalk.white(' — ¡el plugin ya está instalado!\n'));
-
-      console.log(chalk.white.bold('  CADA SESIÓN:\n'));
-      console.log(chalk.cyan('  → ') + chalk.white('En Figma: ') + chalk.yellow('Plugins → Development → uxclaude\n'));
+      console.log(chalk.cyan('  2. ') + chalk.white('Abrí el buscador de plugins con ') + chalk.yellow('Cmd+/') + chalk.white(', seleccioná ') + chalk.yellow('Plugins') + chalk.white(' y buscá ') + chalk.yellow('"UX Claude"'));
+      console.log(chalk.cyan('  3. ') + chalk.white('Ejecutalo — ¡listo!\n'));
 
       console.log(chalk.gray('  💡 Tip: Click derecho en el plugin → "Add to toolbar" para acceso rápido\n'));
 

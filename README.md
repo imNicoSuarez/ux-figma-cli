@@ -27,6 +27,7 @@
 A CLI that connects directly to Figma Desktop and gives you complete control:
 
 - **shadcn/ui Components** — Generate all 30 official shadcn components with real Lucide icons and variable binding
+- **Blocks** — Pre-built UI layouts (dashboards, pages) with one command
 - **Design Tokens** — Create variables, collections, modes (Light/Dark), bind to nodes
 - **Create Anything** — Frames, text, shapes, icons (150k+ from Iconify), components
 - **Slots** — Create and manage Figma's new Slots feature for flexible component content
@@ -126,6 +127,97 @@ All components use `var:` syntax to bind directly to shadcn variables. When you 
 
 ---
 
+## Blocks (Pre-built UI Layouts)
+
+Use `blocks create` for dashboards and full page layouts — much faster than building manually with render/eval.
+
+```bash
+# List available blocks
+node src/index.js blocks list
+
+# Create a full analytics dashboard
+node src/index.js blocks create dashboard-01
+```
+
+### dashboard-01
+
+A complete analytics dashboard including:
+
+- Sidebar with real Lucide icons
+- Stats cards (Revenue, Customers, Accounts, Growth)
+- Area chart with two datasets
+- Data table with pagination
+- All colors bound to shadcn variables (Light/Dark mode ready)
+
+**Dark mode copy:** After creating, clone and switch mode via eval:
+
+```javascript
+var clone = dashboard.clone();
+clone.name = 'Dashboard (Dark)';
+clone.setExplicitVariableModeForCollection(semanticCollection, darkModeId);
+```
+
+---
+
+## AI Verification
+
+After creating any component, run `verify` to capture a screenshot for visual validation:
+
+```bash
+node src/index.js verify              # Screenshot of current selection
+node src/index.js verify "123:456"    # Screenshot of specific node
+```
+
+Returns JSON with a base64 image (max 2000px, auto-scaled). Always verify after `render`, `render-batch`, or `node to-component`.
+
+---
+
+## Slots
+
+Figma's native Slots feature lets designers add, remove, and reorder content in component instances without detaching.
+
+### Commands
+
+```bash
+# Create slot on selected component
+node src/index.js slot create "Content" --flex col --gap 8 --padding 16
+
+# List slots in a component
+node src/index.js slot list
+node src/index.js slot list "component-id"
+
+# Convert an existing frame to a slot (must be inside a component)
+node src/index.js slot convert --name "Actions"
+
+# Set preferred components for a slot
+node src/index.js slot preferred "Slot#1:2" "component-id-1" "component-id-2"
+
+# Add content to a slot in an instance
+node src/index.js slot add "slot-id" --component "component-id"
+node src/index.js slot add "slot-id" --frame
+node src/index.js slot add "slot-id" --text "Hello"
+
+# Reset slot in instance to defaults
+node src/index.js slot reset
+node src/index.js slot reset "slot-node-id"
+```
+
+### JSX Slot Syntax
+
+```jsx
+<Frame name="Card" w={300} bg="#18181b" rounded={12} flex="col" p={16} gap={12}>
+  <Text size={18} weight="bold" color="#fff">Card Title</Text>
+  <Slot name="Content" flex="col" gap={8} w="fill">
+    <Text size={14} color="#a1a1aa">Default slot content</Text>
+  </Slot>
+  <Slot name="Actions" flex="row" gap={8} />
+</Frame>
+```
+
+> **Critical:** Setting `frame.isSlot = true` directly in eval does **not** create a slot. Always use `slot convert` or the JSX `<Slot>` element.
+
+---
+
 ## Why This CLI?
 
 This project includes a `CLAUDE.md` file that Claude reads automatically. It contains:
@@ -146,7 +238,6 @@ This project includes a `CLAUDE.md` file that Claude reads automatically. It con
 - **Figma Desktop** (free account works)
 - **Claude Code** ([get it here](https://www.anthropic.com/claude-code))
 - **macOS or Windows** (macOS recommended, Windows supported)
-- **macOS Full Disk Access** for Terminal (Yolo Mode only -- not needed for [Safe Mode](#-safe-mode--for-restricted-environments))
 
 ---
 
@@ -168,7 +259,7 @@ uxclaude
 
 This will:
 1. Start Figma (if not running)
-2. Connect to Figma (Yolo Mode: patches Figma once for direct access)
+2. Connect to Figma via the UX Claude plugin
 3. Show your open Figma files: pick one with arrow keys
 4. Launch Claude Code with all commands pre-loaded
 
@@ -180,19 +271,8 @@ This will:
 
 | Command | Description |
 |---------|-------------|
-| `uxclaude` | Yolo Mode (default), interactive file picker |
-| `uxclaude --safe` | Safe Mode (plugin-based, no patching) |
-| `uxclaude --setup` | Change the uxclaude repo path |
-
-### Safe Mode (no patching)
-
-If you can't grant Full Disk Access or prefer not to patch Figma:
-
-```bash
-uxclaude --safe
-```
-
-This uses a Figma plugin instead of patching. See [Safe Mode](#-safe-mode--for-restricted-environments) for details.
+| `uxclaude` | Interactive file picker, connects via plugin |
+| `uxclaude --setup` | Update the path to the ux-figma-cli repo |
 
 ### Manual Setup (without uxclaude)
 
@@ -221,7 +301,7 @@ Once connected, just talk to Claude:
 
 The included `CLAUDE.md` teaches Claude all commands automatically. No manual required.
 
-**Safe Mode users:** Start the UX Claude plugin each time you open Figma.
+**Each session:** Start the UX Claude plugin in Figma before running `uxclaude`.
 
 ---
 
@@ -247,46 +327,9 @@ Icons support:
 
 ---
 
-## Two Connection Modes
+## How to Connect
 
-### 🚀 Yolo Mode (Recommended)
-
-**What it does:** Patches Figma once to enable a debug port, then connects directly.
-
-**Pros:**
-- Fully automatic (no manual steps after setup)
-- Slightly faster execution
-- Secure: random port, token auth, localhost only, auto-shutdown on idle
-
-**Cons:**
-- Requires one-time Figma patch
-- Needs Full Disk Access on macOS (one-time)
-
-```
-┌─────────────┐      WebSocket (CDP)      ┌─────────────┐
-│     CLI     │ <------------------------> │   Figma     │
-└─────────────┘    localhost:random port  └─────────────┘
-```
-
-```bash
-node src/index.js connect
-```
-
----
-
-### 🔒 Safe Mode -- For Restricted Environments
-
-**What it does:** Uses a Figma plugin to communicate. No Figma modification needed.
-
-**Pros:**
-- No patching, no app modification
-- Works everywhere (corporate, personal, any environment)
-- No Full Disk Access needed
-- **Full feature parity** with Yolo Mode (all commands work)
-
-**Cons:**
-- Start plugin manually each session (2 clicks)
-- Slightly slower than Yolo Mode
+UX Claude uses a Figma plugin to communicate. No Figma patching or Full Disk Access required.
 
 ```
 ┌─────────────┐     WebSocket     ┌─────────────┐     Plugin API     ┌─────────────┐
@@ -294,104 +337,38 @@ node src/index.js connect
 └─────────────┘   localhost:3456  └─────────────┘                    └─────────────┘
 ```
 
-**Step 1:** Start Safe Mode
-```bash
-uxclaude --safe
-```
-Or manually: `node src/index.js connect --safe`
-
-**Step 2:** Import plugin (one-time only)
+**Step 1:** Import plugin (one-time only)
 1. In Figma: **Plugins -> Development -> Import plugin from manifest**
 2. Select `plugin/manifest.json` from this project
 3. Click **Open**
 
-**Step 3:** Start the plugin (each session)
+**Step 2:** Start the plugin (each session)
 1. In Figma: **Plugins -> Development -> UX Claude**
 2. Terminal shows: `Plugin connected!`
 
 **Tip:** Right-click the plugin -> **Add to toolbar** for quick access.
 
----
-
-### Which Mode Should I Use?
-
-| Situation | Command |
-|---|---|
-| First time user | `uxclaude` (Yolo Mode) |
-| Personal Mac | `uxclaude` (Yolo Mode) |
-| Corporate laptop | `uxclaude --safe` |
-| Permission errors with Yolo | `uxclaude --safe` |
-| Can't modify apps | `uxclaude --safe` |
-
-Both modes have **full feature parity**. Safe Mode uses native Figma Plugin API implementations instead of figma-use, so all commands work identically.
+**Step 3:** Run
+```bash
+uxclaude
+```
 
 ---
 
 ## Troubleshooting
 
-### Permission Error When Patching (macOS)
+### Plugin Not Connecting
 
-If you see `EPERM: operation not permitted, open '.../app.asar'`:
-
-**1. Grant Full Disk Access to Terminal**
-
-macOS blocks file access without this permission, even with sudo.
-
-1. Open **System Settings** -> **Privacy & Security** -> **Full Disk Access**
-2. Click the **+** button
-3. Add **Terminal** (or iTerm, VS Code, Warp, etc.)
-4. **Restart Terminal completely** (quit and reopen)
-
-**2. Make sure Figma is completely closed**
-```bash
-# Check if Figma is still running
-ps aux | grep -i figma
-
-# Force quit if needed
-killall Figma
-```
-
-**3. Run connect again**
-```bash
-node src/index.js connect
-```
-
-If still failing, try with sudo: `sudo node src/index.js connect`
-
-**4. Manual patch (last resort)**
-
-If nothing works, you can patch manually:
-
-```bash
-# Backup original
-sudo cp /Applications/Figma.app/Contents/Resources/app.asar ~/app.asar.backup
-
-# The patch changes one string in the file
-# From: removeSwitch("remote-debugging-port")
-# To:   removeSwitch("remote-debugXing-port")
-
-# Use a hex editor or this command:
-sudo sed -i '' 's/remote-debugging-port/remote-debugXing-port/g' /Applications/Figma.app/Contents/Resources/app.asar
-
-# Re-sign the app
-sudo codesign --force --deep --sign - /Applications/Figma.app
-```
+1. Make sure the **UX Claude plugin is running** in Figma (Plugins -> Development -> UX Claude)
+2. Make sure you have a **design file open** in Figma (not just the home screen)
+3. Restart the daemon: `node src/index.js daemon restart`
+4. Run connect again: `node src/index.js connect`
 
 ### Windows
 
 Windows is supported but less tested than macOS.
 
-**Permission Error:** Run Command Prompt or PowerShell as Administrator, then run `node src/index.js connect`.
-
 **Figma Location:** The CLI expects Figma at `%LOCALAPPDATA%\Figma\Figma.exe` (default install location).
-
-**Safe Mode:** If Yolo Mode doesn't work, use Safe Mode: `node src/index.js connect --safe`
-
-### Figma Not Connecting
-
-1. Make sure Figma Desktop is running (not the web version)
-2. Open a design file in Figma (not just the home screen)
-3. Restart connection: `node src/index.js connect`
 
 ---
 
@@ -405,13 +382,13 @@ npm install
 
 ## How It Works
 
-Connects to Figma Desktop via Chrome DevTools Protocol (CDP). No API key needed because it uses your existing Figma session.
+Connects to Figma Desktop via the UX Claude plugin. No API key needed — it uses your existing Figma session.
 
 ```
-┌─────────────┐      WebSocket (CDP)      ┌─────────────┐
-│   uxclaude  │ <------------------------> │   Figma     │
-│    (CLI)    │   localhost:9222-9322     │  Desktop    │
-└─────────────┘      (random port)        └─────────────┘
+┌─────────────┐     WebSocket     ┌─────────────┐     Plugin API     ┌─────────────┐
+│   uxclaude  │ <---------------> │   Daemon    │ <----------------> │   Plugin    │
+│    (CLI)    │   localhost:3456  └─────────────┘                    │  (Figma)    │
+└─────────────┘                                                       └─────────────┘
 ```
 
 ### Security
@@ -422,7 +399,6 @@ The CLI runs a local daemon for faster command execution. Security features:
 - **No CORS headers**: Blocks cross-origin browser requests
 - **Host header validation**: Only accepts localhost/127.0.0.1
 - **Idle timeout**: Auto-shutdown after 10 minutes of inactivity (configurable)
-- **Random port**: CDP uses a random port between 9222-9322 per session
 
 Token is stored at `~/.uxclaude/.daemon-token` with owner-only permissions (0600).
 
@@ -469,7 +445,7 @@ Token is stored at `~/.uxclaude/.daemon-token` with owner-only permissions (0600
 - Auto-layout props: `flex`, `gap`, `p`/`px`/`py`, `justify`, `items`, `grow`, `wrap`
 - Sizing: `w`/`h` (fixed), `w="fill"` (stretch), auto-hug
 - Appearance: `bg`, `stroke`, `strokeWidth`, `strokeAlign`, `rounded`, `shadow`, `opacity`, `overflow`
-- **Slots** for component content areas
+- **Slots** for component content areas (`slot create`, `slot convert`, `slot add`, `slot preferred`, `slot reset`)
 
 ### Modify Elements
 
@@ -596,6 +572,11 @@ Token is stored at `~/.uxclaude/.daemon-token` with owner-only permissions (0600
 - **Reload page**
 - **Navigate to files**
 
+### Website Recreation
+
+- **Recreate a URL as Figma frames** (`recreate-url "https://example.com" --name "Page"`)
+- **Screenshot any URL** (`screenshot-url "https://example.com"`)
+
 ### Advanced
 
 - Execute any Figma Plugin API code directly
@@ -617,18 +598,7 @@ Token is stored at `~/.uxclaude/.daemon-token` with owner-only permissions (0600
 
 ## Powered By
 
-This CLI is built on top of **[figma-use](https://github.com/dannote/figma-use)** by [dannote](https://github.com/dannote) -- an excellent Figma CLI with JSX rendering, XPath queries, design linting, and much more.
-
-In **Yolo Mode**, we use figma-use for:
-- JSX rendering (`render` command)
-- Node operations (`node tree`, `node to-component`, etc.)
-- Design analysis (`analyze colors`, `analyze typography`)
-- Design linting (`lint`)
-- And many other features
-
-In **Safe Mode**, all commands use native Figma Plugin API implementations, so figma-use is not required.
-
-**Big thanks to dannote for figma-use!**
+All commands use native **Figma Plugin API** implementations via the UX Claude plugin — no external dependencies required beyond the plugin itself.
 
 ## License
 
