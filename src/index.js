@@ -61,12 +61,12 @@ function healthCheckSync(timeoutMs = 2000) {
 
 // Daemon configuration
 const DAEMON_PORT = 3456;
-const DAEMON_PID_FILE = join(homedir(), '.figma-cli-daemon.pid');
-const DAEMON_TOKEN_FILE = join(homedir(), '.figma-ds-cli', '.daemon-token');
+const DAEMON_PID_FILE = join(homedir(), '.uxclaude-daemon.pid');
+const DAEMON_TOKEN_FILE = join(homedir(), '.uxclaude', '.daemon-token');
 
 // Generate and save a new session token for daemon authentication
 function generateDaemonToken() {
-  const configDir = join(homedir(), '.figma-ds-cli');
+  const configDir = join(homedir(), '.uxclaude');
   if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true });
   const token = randomBytes(32).toString('hex');
   writeFileSync(DAEMON_TOKEN_FILE, token, { mode: 0o600 });
@@ -84,7 +84,7 @@ function getDaemonToken() {
 
 // Get detailed token status for debugging
 function getTokenStatus() {
-  const configDir = join(homedir(), '.figma-ds-cli');
+  const configDir = join(homedir(), '.uxclaude');
   const tokenPath = DAEMON_TOKEN_FILE;
   const status = {
     configDir,
@@ -324,7 +324,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const pkg = JSON.parse(readFileSync(join(__dirname, '..', 'package.json'), 'utf8'));
 
-const CONFIG_DIR = join(homedir(), '.figma-ds-cli');
+const CONFIG_DIR = join(homedir(), '.uxclaude');
 const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 const program = new Command();
@@ -574,8 +574,8 @@ async function checkConnection() {
   if (!connected) {
     console.log(chalk.red('\n✗ Not connected to Figma\n'));
     console.log(chalk.white('  Make sure Figma is running:'));
-    console.log(chalk.cyan('  figma-ds-cli connect') + chalk.gray(' (Yolo Mode)'));
-    console.log(chalk.cyan('  figma-ds-cli connect --safe') + chalk.gray(' (Safe Mode)\n'));
+    console.log(chalk.cyan('  uxclaude connect') + chalk.gray(' (Yolo Mode)'));
+    console.log(chalk.cyan('  uxclaude connect --safe') + chalk.gray(' (Safe Mode)\n'));
     process.exit(1);
   }
   return true;
@@ -604,8 +604,8 @@ function checkConnectionSync() {
   } catch {
     console.log(chalk.red('\n✗ Not connected to Figma\n'));
     console.log(chalk.white('  Make sure Figma is running:'));
-    console.log(chalk.cyan('  figma-ds-cli connect') + chalk.gray(' (Yolo Mode)'));
-    console.log(chalk.cyan('  figma-ds-cli connect --safe') + chalk.gray(' (Safe Mode)\n'));
+    console.log(chalk.cyan('  uxclaude connect') + chalk.gray(' (Yolo Mode)'));
+    console.log(chalk.cyan('  uxclaude connect --safe') + chalk.gray(' (Safe Mode)\n'));
     process.exit(1);
   }
 }
@@ -712,7 +712,7 @@ if (children.length > 0) {
 }
 
 program
-  .name('figma-ds-cli')
+  .name('uxclaude')
   .description('CLI for managing Figma design systems')
   .version(pkg.version);
 
@@ -856,22 +856,22 @@ function showQuickStart() {
   console.log(chalk.white('    "Show me what\'s on the canvas"'));
   console.log(chalk.white('    "Export this frame as PNG"'));
   console.log();
-  console.log(chalk.gray('  Learn more: ') + chalk.cyan('https://intodesignsystems.com\n'));
+  console.log(chalk.gray('  Más info: ') + chalk.cyan('Mercado Libre · UX Claude\n'));
 }
 
 // ============ WELCOME BANNER ============
 
 function showBanner() {
   console.log(chalk.cyan(`
-  ███████╗██╗ ██████╗ ███╗   ███╗ █████╗       ██████╗ ███████╗       ██████╗██╗     ██╗
-  ██╔════╝██║██╔════╝ ████╗ ████║██╔══██╗      ██╔══██╗██╔════╝      ██╔════╝██║     ██║
-  █████╗  ██║██║  ███╗██╔████╔██║███████║█████╗██║  ██║███████╗█████╗██║     ██║     ██║
-  ██╔══╝  ██║██║   ██║██║╚██╔╝██║██╔══██║╚════╝██║  ██║╚════██║╚════╝██║     ██║     ██║
-  ██║     ██║╚██████╔╝██║ ╚═╝ ██║██║  ██║      ██████╔╝███████║      ╚██████╗███████╗██║
-  ╚═╝     ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝      ╚═════╝ ╚══════╝       ╚═════╝╚══════╝╚═╝
+  ██╗   ██╗██╗  ██╗     ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗
+  ██║   ██║╚██╗██╔╝    ██╔════╝██║     ██╔══██╗██║   ██║██╔══██╗██╔════╝
+  ██║   ██║ ╚███╔╝     ██║     ██║     ███████║██║   ██║██║  ██║█████╗
+  ██║   ██║ ██╔██╗     ██║     ██║     ██╔══██║██║   ██║██║  ██║██╔══╝
+  ╚██████╔╝██╔╝ ██╗    ╚██████╗███████╗██║  ██║╚██████╔╝██████╔╝███████╗
+   ╚═════╝ ╚═╝  ╚═╝     ╚═════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝╚══════╝
 `));
-  console.log(chalk.white(`  Design System CLI for Figma ${chalk.gray('v' + pkg.version)}`));
-  console.log(chalk.gray(`  by Sil Bormüller • intodesignsystems.com\n`));
+  console.log(chalk.white(`  CLI de Diseño para Figma ${chalk.gray('v' + pkg.version)}`));
+  console.log(chalk.gray(`  por Mercado Libre\n`));
 }
 
 // ============ INIT (Interactive Onboarding) ============
@@ -969,7 +969,7 @@ program
     console.log(chalk.white('    "Show me what\'s on the canvas"'));
     console.log(chalk.white('    "Export this frame as PNG"'));
     console.log();
-    console.log(chalk.gray('  Learn more: ') + chalk.cyan('https://intodesignsystems.com\n'));
+    console.log(chalk.gray('  Más info: ') + chalk.cyan('Mercado Libre · UX Claude\n'));
   });
 
 // ============ SETUP (alias for init) ============
@@ -979,7 +979,7 @@ program
   .description('Setup Figma for CLI access (alias for init)')
   .action(() => {
     // Redirect to init
-    execSync('figma-ds-cli init', { stdio: 'inherit' });
+    execSync('uxclaude init', { stdio: 'inherit' });
   });
 
 // ============ STATUS ============
@@ -992,7 +992,7 @@ program
     const config = loadConfig();
     if (!config.patched && !checkDependencies(true)) {
       console.log(chalk.yellow('\n⚠ First time? Run the setup wizard:\n'));
-      console.log(chalk.cyan('  figma-ds-cli init\n'));
+      console.log(chalk.cyan('  uxclaude init\n'));
       return;
     }
     figmaUse('status');
@@ -1043,8 +1043,8 @@ program
   .option('--safe', 'Use Safe Mode (plugin-based, no patching required)')
   .action(async (options) => {
     // Fun welcome message
-    console.log(chalk.hex('#FF6B35')('\n  ✨ Hey designer! ') + chalk.white("Don't be afraid of the terminal!"));
-    console.log(chalk.hex('#4ECDC4')('  🎨 Happy vibe coding! ') + chalk.gray('— Sil · ') + chalk.hex('#FF6B35')('intodesignsystems.com\n'));
+    console.log(chalk.hex('#FF6B35')('\n  ✨ ¡Hola diseñador! ') + chalk.white("¡El terminal es tu amigo!"));
+    console.log(chalk.hex('#4ECDC4')('  🎨 ¡Buenas vibras creando! ') + chalk.gray('— ') + chalk.hex('#FF6B35')('Mercado Libre\n'));
 
     const config = loadConfig();
 
@@ -1056,12 +1056,12 @@ program
       stopDaemon();
 
       // Start daemon in plugin mode
-      const daemonSpinner = ora('Starting daemon in Safe Mode...').start();
+      const daemonSpinner = ora('Iniciando daemon en Modo Seguro...').start();
       try {
         startDaemon(true, 'plugin');  // Force restart in plugin mode
         await new Promise(r => setTimeout(r, 1000));
         if (isDaemonRunning()) {
-          daemonSpinner.succeed('Daemon running in Safe Mode');
+          daemonSpinner.succeed('Daemon corriendo en Modo Seguro');
         } else {
           daemonSpinner.fail('Daemon failed to start');
           return;
@@ -1073,30 +1073,30 @@ program
 
       // Show plugin setup instructions
       console.log(chalk.hex('#FF6B35')('\n  ┌─────────────────────────────────────────────────────┐'));
-      console.log(chalk.hex('#FF6B35')('  │') + chalk.white.bold('  Setup the FigCli plugin                           ') + chalk.hex('#FF6B35')('│'));
+      console.log(chalk.hex('#FF6B35')('  │') + chalk.white.bold('  Configurar el plugin de uxclaude                  ') + chalk.hex('#FF6B35')('│'));
       console.log(chalk.hex('#FF6B35')('  └─────────────────────────────────────────────────────┘\n'));
 
-      console.log(chalk.white.bold('  ONE-TIME SETUP:\n'));
-      console.log(chalk.cyan('  1. ') + chalk.white('Open Figma Desktop and any design file'));
-      console.log(chalk.cyan('  2. ') + chalk.white('Go to ') + chalk.yellow('Plugins → Development → Import plugin from manifest'));
-      console.log(chalk.cyan('  3. ') + chalk.white('Navigate to: ') + chalk.yellow(process.cwd() + '/plugin/manifest.json'));
-      console.log(chalk.cyan('  4. ') + chalk.white('Click ') + chalk.yellow('Open') + chalk.white(' — plugin is now installed!\n'));
+      console.log(chalk.white.bold('  CONFIGURACIÓN INICIAL (solo una vez):\n'));
+      console.log(chalk.cyan('  1. ') + chalk.white('Abrí Figma Desktop y cualquier archivo de diseño'));
+      console.log(chalk.cyan('  2. ') + chalk.white('Andá a ') + chalk.yellow('Plugins → Development → Import plugin from manifest'));
+      console.log(chalk.cyan('  3. ') + chalk.white('Navegá a: ') + chalk.yellow(process.cwd() + '/plugin/manifest.json'));
+      console.log(chalk.cyan('  4. ') + chalk.white('Hacé click en ') + chalk.yellow('Open') + chalk.white(' — ¡el plugin ya está instalado!\n'));
 
-      console.log(chalk.white.bold('  EACH SESSION:\n'));
-      console.log(chalk.cyan('  → ') + chalk.white('In Figma: ') + chalk.yellow('Plugins → Development → FigCli\n'));
+      console.log(chalk.white.bold('  CADA SESIÓN:\n'));
+      console.log(chalk.cyan('  → ') + chalk.white('En Figma: ') + chalk.yellow('Plugins → Development → uxclaude\n'));
 
-      console.log(chalk.gray('  💡 Tip: Right-click plugin → "Add to toolbar" for one-click access\n'));
+      console.log(chalk.gray('  💡 Tip: Click derecho en el plugin → "Add to toolbar" para acceso rápido\n'));
 
       // Wait for plugin connection
-      const pluginSpinner = ora('Waiting for plugin connection...').start();
+      const pluginSpinner = ora('Esperando conexión del plugin...').start();
       let pluginConnected = false;
       for (let i = 0; i < 30; i++) {  // Wait up to 30 seconds
         await new Promise(r => setTimeout(r, 1000));
         try {
           const health = healthCheckSync();
           if (health.plugin) {
-            pluginSpinner.succeed('Plugin connected!');
-            console.log(chalk.green('\n  ✓ Ready! Safe Mode active.\n'));
+            pluginSpinner.succeed('¡Plugin conectado!');
+            console.log(chalk.green('\n  ✓ ¡Listo! Modo seguro activo.\n'));
             pluginConnected = true;
             break;
           }
@@ -1104,7 +1104,7 @@ program
       }
 
       if (!pluginConnected) {
-        pluginSpinner.warn('Plugin not detected. Start the plugin in Figma to connect.');
+        pluginSpinner.warn('Plugin no detectado. Iniciá el plugin en Figma para conectar.');
       }
       return;
     }
@@ -1870,7 +1870,7 @@ daemon
   .action(async () => {
     if (!isDaemonRunning()) {
       console.log(chalk.yellow('○ Daemon is not running'));
-      console.log(chalk.gray('  Run "figma-ds-cli connect" first'));
+      console.log(chalk.gray('  Run "uxclaude connect" first'));
       return;
     }
     console.log(chalk.blue('Reconnecting to Figma...'));
@@ -2767,7 +2767,7 @@ return count;
     console.log(chalk.gray('    • Border Radii (none to full)'));
     console.log();
     console.log(chalk.gray('  Total: ~74 variables across 5 collections\n'));
-    console.log(chalk.gray('  Next: ') + chalk.cyan('figma-ds-cli tokens components') + chalk.gray(' to add UI components\n'));
+    console.log(chalk.gray('  Next: ') + chalk.cyan('uxclaude tokens components') + chalk.gray(' to add UI components\n'));
   });
 
 tokens
@@ -3153,7 +3153,7 @@ program
     const spinner = ora('Taking screenshot of ' + url + '...').start();
 
     try {
-      const tempFile = join(tmpdir(), 'figma-cli-screenshot.png');
+      const tempFile = join(tmpdir(), 'uxclaude-screenshot.png');
 
       // Build capture-website command
       let cmd = `npx --yes capture-website-cli "${url}" --output="${tempFile}" --width=${options.width} --height=${options.height} --scale-factor=${options.scale}`;
@@ -3707,7 +3707,7 @@ program
     const spinner = ora('Exporting selected image...').start();
 
     try {
-      const tempInput = join(tmpdir(), 'figma-cli-removebg-input.png');
+      const tempInput = join(tmpdir(), 'uxclaude-removebg-input.png');
 
       // Export selected node as PNG
       let exportCmd = 'export png --scale 2 --output "' + tempInput + '"';
@@ -7529,7 +7529,7 @@ figjam
       console.log();
     } catch (error) {
       console.log(chalk.red('\n✗ Could not connect to Figma\n'));
-      console.log(chalk.gray('  Make sure Figma is running with: figma-ds-cli connect\n'));
+      console.log(chalk.gray('  Make sure Figma is running with: uxclaude connect\n'));
     }
   });
 
@@ -8328,7 +8328,7 @@ blocksCmd
 
         // Write temp file and return path
         writeTemp: (name, content) => {
-          const tmpDir = join(homedir(), '.figma-ds-cli', 'tmp');
+          const tmpDir = join(homedir(), '.uxclaude', 'tmp');
           if (!existsSync(tmpDir)) mkdirSync(tmpDir, { recursive: true });
           const tmpPath = join(tmpDir, name);
           writeFileSync(tmpPath, content);

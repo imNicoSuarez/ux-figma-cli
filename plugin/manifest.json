@@ -1,16 +1,23 @@
 {
-  "name": "FigCli",
-  "id": "figma-cli-bridge",
+  "name": "UX Claude",
+  "id": "1616820718906219813",
   "api": "1.0.0",
   "main": "code.js",
   "ui": "ui.html",
   "capabilities": [],
-  "permissions": ["teamlibrary"],
+  "permissions": [
+    "teamlibrary"
+  ],
   "enableProposedApi": false,
-  "editorType": ["figma", "figjam"],
+  "editorType": [
+    "figma",
+    "figjam"
+  ],
   "documentAccess": "dynamic-page",
   "networkAccess": {
-    "allowedDomains": ["http://127.0.0.1:3456", "ws://127.0.0.1:3456"],
+    "allowedDomains": [
+      "*"
+    ],
     "reasoning": "Connects to local CLI daemon for command execution"
   }
 }

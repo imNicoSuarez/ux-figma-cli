@@ -1,13 +1,13 @@
 {
-  "name": "figma-ds-cli",
+  "name": "uxclaude",
   "version": "1.1.1",
   "description": "CLI for managing Figma design systems. Create variables, components, and more. No API key required.",
   "author": "Sil Bormüller",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "figma-ds-cli": "src/index.js",
-    "fig-start": "bin/fig-start"
+    "uxclaude": "bin/fig-start",
+    "uxc": "src/index.js"
   },
   "files": [
     "src",

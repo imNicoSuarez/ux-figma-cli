@@ -1,4 +1,4 @@
-# figma-ds-cli
+# UX Claude
 
 <p align="center">
   <a href="https://intodesignsystems.com"><img src="https://img.shields.io/badge/Into_Design_Systems-intodesignsystems.com-ff6b35" alt="Into Design Systems"></a>
@@ -14,12 +14,12 @@
 </p>
 
 ```
-  ███████╗██╗ ██████╗ ███╗   ███╗ █████╗       ██████╗ ███████╗       ██████╗██╗     ██╗
-  ██╔════╝██║██╔════╝ ████╗ ████║██╔══██╗      ██╔══██╗██╔════╝      ██╔════╝██║     ██║
-  █████╗  ██║██║  ███╗██╔████╔██║███████║█████╗██║  ██║███████╗█████╗██║     ██║     ██║
-  ██╔══╝  ██║██║   ██║██║╚██╔╝██║██╔══██║╚════╝██║  ██║╚════██║╚════╝██║     ██║     ██║
-  ██║     ██║╚██████╔╝██║ ╚═╝ ██║██║  ██║      ██████╔╝███████║      ╚██████╗███████╗██║
-  ╚═╝     ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝      ╚═════╝ ╚══════╝       ╚═════╝╚══════╝╚═╝
+  ██╗   ██╗██╗  ██╗     ██████╗██╗      █████╗ ██╗   ██╗██████╗ ███████╗
+  ██║   ██║╚██╗██╔╝    ██╔════╝██║     ██╔══██╗██║   ██║██╔══██╗██╔════╝
+  ██║   ██║ ╚███╔╝     ██║     ██║     ███████║██║   ██║██║  ██║█████╗
+  ██║   ██║ ██╔██╗     ██║     ██║     ██╔══██║██║   ██║██║  ██║██╔══╝
+  ╚██████╔╝██╔╝ ██╗    ╚██████╗███████╗██║  ██║╚██████╔╝██████╔╝███████╗
+   ╚═════╝ ╚═╝  ╚═╝     ╚═════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚═════╝╚══════╝
 ```
 
 ## What is This?
@@ -153,8 +153,8 @@ This project includes a `CLAUDE.md` file that Claude reads automatically. It con
 ## Setup
 
 ```bash
-git clone https://github.com/silships/figma-cli.git
-cd figma-cli
+git clone https://github.com/silships/ux-figma-cli.git
+cd ux-figma-cli
 npm install
 npm run setup-alias
 source ~/.zshrc
@@ -163,7 +163,7 @@ source ~/.zshrc
 That's it. Now open a **new terminal** and type:
 
 ```bash
-fig-start
+uxclaude
 ```
 
 This will:
@@ -174,27 +174,27 @@ This will:
 
 **Done.** Talk to Claude about your Figma file.
 
-> **Note:** `fig-start` works from any directory. The setup script saves the repo location to `~/.figma-cli/config.json`.
+> **Note:** `uxclaude` works from any directory. The setup script saves the repo location to `~/.uxclaude/config.json`.
 
-### fig-start Options
+### uxclaude Options
 
 | Command | Description |
 |---------|-------------|
-| `fig-start` | Yolo Mode (default), interactive file picker |
-| `fig-start --safe` | Safe Mode (plugin-based, no patching) |
-| `fig-start --setup` | Change the figma-cli repo path |
+| `uxclaude` | Yolo Mode (default), interactive file picker |
+| `uxclaude --safe` | Safe Mode (plugin-based, no patching) |
+| `uxclaude --setup` | Change the uxclaude repo path |
 
 ### Safe Mode (no patching)
 
 If you can't grant Full Disk Access or prefer not to patch Figma:
 
 ```bash
-fig-start --safe
+uxclaude --safe
 ```
 
 This uses a Figma plugin instead of patching. See [Safe Mode](#-safe-mode--for-restricted-environments) for details.
 
-### Manual Setup (without fig-start)
+### Manual Setup (without uxclaude)
 
 ```bash
 cd figma-cli
@@ -221,7 +221,7 @@ Once connected, just talk to Claude:
 
 The included `CLAUDE.md` teaches Claude all commands automatically. No manual required.
 
-**Safe Mode users:** Start the FigCli plugin each time you open Figma.
+**Safe Mode users:** Start the UX Claude plugin each time you open Figma.
 
 ---
 
@@ -296,7 +296,7 @@ node src/index.js connect
 
 **Step 1:** Start Safe Mode
 ```bash
-fig-start --safe
+uxclaude --safe
 ```
 Or manually: `node src/index.js connect --safe`
 
@@ -306,7 +306,7 @@ Or manually: `node src/index.js connect --safe`
 3. Click **Open**
 
 **Step 3:** Start the plugin (each session)
-1. In Figma: **Plugins -> Development -> FigCli**
+1. In Figma: **Plugins -> Development -> UX Claude**
 2. Terminal shows: `Plugin connected!`
 
 **Tip:** Right-click the plugin -> **Add to toolbar** for quick access.
@@ -317,11 +317,11 @@ Or manually: `node src/index.js connect --safe`
 
 | Situation | Command |
 |---|---|
-| First time user | `fig-start` (Yolo Mode) |
-| Personal Mac | `fig-start` (Yolo Mode) |
-| Corporate laptop | `fig-start --safe` |
-| Permission errors with Yolo | `fig-start --safe` |
-| Can't modify apps | `fig-start --safe` |
+| First time user | `uxclaude` (Yolo Mode) |
+| Personal Mac | `uxclaude` (Yolo Mode) |
+| Corporate laptop | `uxclaude --safe` |
+| Permission errors with Yolo | `uxclaude --safe` |
+| Can't modify apps | `uxclaude --safe` |
 
 Both modes have **full feature parity**. Safe Mode uses native Figma Plugin API implementations instead of figma-use, so all commands work identically.
 
@@ -398,7 +398,7 @@ Windows is supported but less tested than macOS.
 ## Updating
 
 ```bash
-cd ~/path/to/figma-cli
+cd ~/path/to/ux-figma-cli
 git pull
 npm install
 ```
@@ -409,7 +409,7 @@ Connects to Figma Desktop via Chrome DevTools Protocol (CDP). No API key needed 
 
 ```
 ┌─────────────┐      WebSocket (CDP)      ┌─────────────┐
-│ figma-ds-cli │ <------------------------> │   Figma     │
+│   uxclaude  │ <------------------------> │   Figma     │
 │    (CLI)    │   localhost:9222-9322     │  Desktop    │
 └─────────────┘      (random port)        └─────────────┘
 ```
@@ -424,7 +424,7 @@ The CLI runs a local daemon for faster command execution. Security features:
 - **Idle timeout**: Auto-shutdown after 10 minutes of inactivity (configurable)
 - **Random port**: CDP uses a random port between 9222-9322 per session
 
-Token is stored at `~/.figma-ds-cli/.daemon-token` with owner-only permissions (0600).
+Token is stored at `~/.uxclaude/.daemon-token` with owner-only permissions (0600).
 
 ---
 
@@ -590,7 +590,7 @@ Token is stored at `~/.figma-ds-cli/.daemon-token` with owner-only permissions (
 
 ### Console & Debugging
 
-- **List open Figma files** (`files` command, used by fig-start)
+- **List open Figma files** (`files` command, used by uxclaude)
 - **Capture console logs** from Figma
 - **Execute code with log capture**
 - **Reload page**
